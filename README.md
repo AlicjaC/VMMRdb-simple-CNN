@@ -1,5 +1,6 @@
 # VMMRdb-simple-CNN
 Simple CNN model for cars' make, model and year classification on VMMRdb
+
 For full project description please visit https://deepdrive.pl/?p=1170
 
 prepare_csv
