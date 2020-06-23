@@ -18,4 +18,4 @@ train_v2
  - same CNN model as in train_v1
  - multiple output
  
-optuna_env.yml and requirements.txt - my environment files in case they're necessary
+optuna_env.yml and requirements.txt - my environment's files, in case they're necessary
