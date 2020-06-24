@@ -50,10 +50,7 @@ def overLimit(lista, limit = 200):
                     if counter > 200:
                         del lista[i-deleted]
                         deleted += 1
-        
     return lista
-
-# learning rate warmup from: https://www.dlology.com/blog/bag-of-tricks-for-image-classification-with-convolutional-neural-networks-in-keras/
 
 def cosine_decay_with_warmup(global_step,
                              learning_rate_base,
@@ -92,6 +89,7 @@ class WarmUpCosineDecayScheduler(keras.callbacks.Callback):
                  warmup_steps=0,
                  hold_base_rate_steps=0,
                  verbose=0):
+
         super(WarmUpCosineDecayScheduler, self).__init__()
         self.learning_rate_base = learning_rate_base
         self.total_steps = total_steps
@@ -149,7 +147,7 @@ for i in range(len(train_paths)):
         del year[i-deleted_counter]
         del car[i-deleted_counter]
         deleted_counter += 1
-
+    
 def fConstant ():
     return 0.1
 c = list(zip(train_paths, make, model, year))
@@ -166,10 +164,10 @@ car = [str(make[i]) +'.'+ str(model[i]) +'.'+ str(year[i]) for i in range(len(ma
 
 image_count = len(train_paths)
 
-multiplier = 16
+multiplier = 16 
 BATCH_SIZE = 32 * multiplier
-IMG_WIDTH = 96
-IMG_HEIGHT = 96
+IMG_WIDTH = 96 
+IMG_HEIGHT = 96 
 STEPS_PER_EPOCH = np.ceil(image_count/BATCH_SIZE)
 STEPS_PER_EPOCH_TRAIN = np.ceil(image_count/BATCH_SIZE*0.7)
 STEPS_PER_EPOCH_VAL = np.ceil(image_count/BATCH_SIZE*0.3)
@@ -211,7 +209,7 @@ def process_dataset(file_path):
      
     img = tf.io.read_file(file_path)
     img = decode_image(img)
-    return img, (label_make, label_model, label_year)
+    return img, label_make
 
 labeled_ds = path_list.map(process_dataset, num_parallel_calls=AUTOTUNE)
 
@@ -238,60 +236,54 @@ mirrored_strategy = tf.distribute.MirroredStrategy()
 
 def params_search(trial):
     with mirrored_strategy.scope():
-        
-        neuron_1 = int(trial.suggest_loguniform('neuron_1', 64, 512))
-        kernel_1 = trial.suggest_categorical('kernel_1', [3,5,7])
-        neuron_2 = int(trial.suggest_loguniform('neuron_2', 64, 1024))
-        kernel_2 = trial.suggest_categorical('kernel_2', [3,5,7])
-        neuron_3 = int(trial.suggest_loguniform('neuron_3', 128, 1024))
-        kernel_3 = trial.suggest_categorical('kernel_3', [3,5])
-        neuron_4 = int(trial.suggest_loguniform('neuron_4', 128, 2048))
-        kernel_4 = trial.suggest_categorical('kernel_4', [3,5])
+        neuron_1 = 457
+        kernel_1 = 7 
+        neuron_2 = 934
+        kernel_2 = 7 
+        neuron_3 = 471 
+        kernel_3 = 5 
+        neuron_4 = 1343 
+        kernel_4 = 5 
+
+        conv_dropout = trial.suggest_discrete_uniform('conv_dropout', 0.0, 0.5, 0.05)
         
         image_input = keras.Input(shape=(IMG_WIDTH, IMG_HEIGHT, 3), name='input_image')
-        x = layers.Conv2D(neuron_1, (kernel_1, kernel_1), use_bias=False)(image_input)
+        x = layers.Conv2D(neuron_1, (kernel_1, kernel_1), use_bias=False, name='conv_1', trainable=False)(image_input)
         x = layers.BatchNormalization()(x)
         x = layers.Activation('relu')(x)
         x = layers.MaxPooling2D()(x)
-        x = layers.Conv2D(neuron_2, (kernel_2, kernel_2), activation='relu')(x)
+        x = layers.Conv2D(neuron_2, (kernel_2, kernel_2), activation='relu', name='conv_2', trainable=False)(x)
         x = layers.MaxPooling2D()(x)
-        x = layers.Conv2D(neuron_3, (kernel_3, kernel_3), activation='relu')(x)
+        x = layers.Conv2D(neuron_3, (kernel_3, kernel_3), activation='relu', name='conv_3', trainable=False)(x)
         x = layers.MaxPooling2D()(x)
-        x = layers.Conv2D(neuron_4, (kernel_4, kernel_4), activation='relu')(x)
+        x = layers.Conv2D(neuron_4, (kernel_4, kernel_4), activation='relu', name='conv_4', trainable=False)(x)
         x = layers.MaxPooling2D()(x)
+        x = layers.Dropout(conv_dropout)(x)
         x = layers.GlobalAveragePooling2D()(x)
-        
-        num_dense_make = 1
-        make_neuron = 2048
-        num_dense_model = 3
-        model_neuron = 2048
-        num_dense_year = 2
-        year_neuron = 128
 
-        l_make = layers.Dense(make_neuron, activation='relu')(x)
-        l_model = layers.Dense(model_neuron, activation='relu')(x)
-        l_year = layers.Dense(year_neuron, activation='relu')(x)
+        l2_make = tf.keras.regularizers.l2(trial.suggest_loguniform('l2_make', 1e-8, 1e-4))
 
-        for i in range(int(num_dense_model-1)):
-            l_model = layers.Dense(model_neuron, activation='relu')(l_model)
-        
-        for i in range(int(num_dense_year-1)):
-            l_year = layers.Dense(year_neuron, activation='relu')(l_year)
+        num_dense_make = 9
+        make_neuron = 1563
+        make_dropout = trial.suggest_discrete_uniform('make_dropout', 0.0, 0.5, 0.05)
+
+        l_make = layers.Dense(make_neuron, activation='relu', kernel_regularizer = l2_make)(x)
+
+        for i in range(int(num_dense_make-1)):
+            l_make = layers.Dense(make_neuron, activation='relu', kernel_regularizer = l2_make)(l_make)
+        l_make = layers.Dropout(make_dropout)(l_make)
 
         output_make = layers.Dense(len(CLASS_NAMES_MAKE), activation='softmax', name='output_make')(l_make)
-        output_model = layers.Dense(len(CLASS_NAMES_MODEL), activation='softmax', name='output_model')(l_model)
-        output_year = layers.Dense(len(CLASS_NAMES_YEAR), activation='softmax', name='output_year')(l_year)
 
-        cnn = keras.Model(inputs=image_input, outputs=[output_make, output_model, output_year], name='cars_model')
+        cnn = keras.Model(inputs=image_input, outputs=output_make)
 
         cnn.compile(optimizer='Adam',
                     loss='categorical_crossentropy',
-                    loss_weights=[1., 1., 1.],
                     metrics=['acc'])
-
+        
+    cnn.load_weights('weights.h5', by_name=True)
+        
     #CALLBACKS
-    prunning = optuna.integration.TFKerasPruningCallback(trial, 'loss')
-
     sample_count = np.ceil(image_count*0.7)
     epochs = 1000
     warmup_epoch = 10
@@ -309,16 +301,19 @@ def params_search(trial):
 
     cnn.fit(train_set,
             steps_per_epoch = STEPS_PER_EPOCH_TRAIN,
-            epochs = 70,
-            callbacks=[prunning, warm_up_lr],
+            epochs = 40,
+            callbacks=[warm_up_lr],
+            validation_data = test_set,
+            validation_steps = STEPS_PER_EPOCH_VAL
             )
     
-    loss, _, _, _, make_acc, model_acc, year_acc = cnn.evaluate(train_set, steps=STEPS_PER_EPOCH_TRAIN)
+    loss, make_acc = cnn.evaluate(test_set, steps=STEPS_PER_EPOCH_VAL)
     
     return loss
 
-study = optuna.create_study(sampler = TPESampler(n_startup_trials=120))
 
-study.optimize(params_search, n_trials=150)
+study = optuna.create_study(sampler = TPESampler(n_startup_trials=100))
 
-joblib.dump(study, 'optuna_trials/conv150.pkl')
+study.optimize(params_search, n_trials=120)
+
+joblib.dump(study, 'optuna_trials/make_reg120.pkl')
