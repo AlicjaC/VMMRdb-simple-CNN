@@ -9,6 +9,15 @@ prepare_csv
  - downloads data
  - creates csv file containing labels and paths to photos
  
+Finished model with data augmentation: to be added
+ 
+ 
+4 phrases of hyperparameter optimization:
+ - optuna_conv
+ - optuna_dense
+ - optuna_reg
+ - lr_scheduler
+ 
 train_v1
  - just any CNN model for tests
  - single output
