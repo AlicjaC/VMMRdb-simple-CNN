@@ -8,7 +8,7 @@ For full project description please visit https://deepdrive.pl/?p=1170
 ## Main files
 prepare_csv
  - downloads data
- - creates csv file containing labels and paths to photos
+ - creates csv file containing labels and paths to images
  
 Finished model with data augmentation: to be added
  
