@@ -15,7 +15,15 @@ train_v1
  - data as np.array
 
 train_v2
- - same CNN model as in train_v1
  - multiple output
+ - data as np.array
+ 
+train_v3
+ - single output
+ - data as tf.data
+ 
+train_v4
+ - multiple output
+ - data as tf.data
  
 optuna_env.yml and requirements.txt - my environment's files, in case they're necessary
