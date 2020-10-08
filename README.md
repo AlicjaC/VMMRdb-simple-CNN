@@ -1,5 +1,6 @@
 # VMMRdb-simple-CNN
-Simple CNN model for cars' make, model and year classification on VMMRdb
+Simple CNN model for cars' make, model and year classification on VMMRdb as in:
+https://openaccess.thecvf.com/content_cvpr_2017_workshops/w9/papers/Tafazzoli_A_Large_and_CVPR_2017_paper.pdf
 
 Requires TF 2.0 or higher and Optuna.
 
