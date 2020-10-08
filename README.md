@@ -1,6 +1,6 @@
 # VMMRdb-simple-CNN
 Simple CNN model for cars' make, model and year classification on VMMRdb as in:
-https://openaccess.thecvf.com/content_cvpr_2017_workshops/w9/papers/Tafazzoli_A_Large_and_CVPR_2017_paper.pdf
+A Large and Diverse Dataset for Improved Vehicle Make and Model Recognition F. Tafazzoli, K. Nishiyama and H. Frigui In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) Workshops 2017.
 
 Requires TF 2.0 or higher and Optuna.
 
