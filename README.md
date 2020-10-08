@@ -5,12 +5,13 @@ Requires TF 2.0 or higher and Optuna.
 
 For full project description please visit https://deepdrive.pl/?p=1170
 
-## Main files
+## Basic files
 prepare_csv
  - downloads data
  - creates csv file containing labels and paths to images
  
-Finished model with data augmentation: to be added
+cars_final
+ - script to train model with augmentation
  
 ## Hyperparameter optimization files
 4 phrases of hyperparameter optimization:
