@@ -35,9 +35,14 @@ from optuna.samplers import CmaEsSampler
 
 from functools import partial
 
-dataset_dir = '/home/ola/vmmr/Car_Dataset'
-logs_dir = '/home/ola/vmmr/logi/'
-models_dir = '/home/ola/vmmr/modele/'
+dataset_dir = './Car_Dataset'
+logs_dir = './logs/'
+models_dir = './models/'
+
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
+if not os.path.exists(models_dir):
+    os.makedirs(models_dir)
 
 tf.config.optimizer.set_jit(True)
 
@@ -63,12 +68,12 @@ path_list = tf.data.Dataset.from_tensor_slices(train_paths)
 
 labeled_ds = data_prep.prepare_ds(path_list, CLASS_NAMES_MAKE, CLASS_NAMES_MODEL, CLASS_NAMES_YEAR, IMG_WIDTH)
 
-train_size = math.ceil(0.7 * image_count)
+train_size = math.ceil(0.7 * len(train_paths))
 train_ds = labeled_ds.take(train_size)
-test_ds = labeled_ds.skip(train_size)
+val_ds = labeled_ds.skip(train_size)
 
-train_set = data_prep.prepare_for_training(train_ds, is_training_set=True)
-test_set = data_prep.prepare_for_training(test_ds)
+train_set = data_prep.prepare_for_training(train_ds, batch_size = BATCH_SIZE, is_training_set=True)
+val_set = data_prep.prepare_for_training(val_ds, batch_size = BATCH_SIZE)
 
 mirrored_strategy = tf.distribute.MirroredStrategy()
 
@@ -77,16 +82,12 @@ def params_search():
         
         neuron_1 = 156
         kernel_1 = 5
-        
         neuron_2 = 312
         kernel_2 = 3
-        
         neuron_3 = 624
         kernel_3 = 3        
-        
         neuron_4 = 1248
         kernel_4 = 3
-        
         
         image_input = keras.Input(shape=(IMG_WIDTH, IMG_HEIGHT, 3), name='input_image')
         x = layers.Conv2D(neuron_1, (kernel_1, kernel_1), use_bias=False)(image_input)
@@ -141,7 +142,7 @@ def params_search():
 
         cnn = keras.Model(inputs=image_input, outputs=[output_make, output_model, output_year], name='cars_model')
 
-        #or if you want to use model trained earlier:
+        #or if you want to use pretrained model:
 #         cnn = tf.keras.models.load_model(path_to_model)
         cnn.compile(optimizer='Adam',
                     loss='categorical_crossentropy',
@@ -153,7 +154,7 @@ def params_search():
     logdir = logs_dir + datetime.datetime.now().strftime("%b-%d-%H%M")
     tbcall = tf.keras.callbacks.TensorBoard(logdir, profile_batch=0)
     
-    checkpoint_filepath = models_dir + model_checkpoint.h5
+    checkpoint_filepath = models_dir + 'model_checkpoint.h5'
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=checkpoint_filepath,
         save_weights_only=False,
@@ -161,7 +162,7 @@ def params_search():
         mode='max',
         save_best_only=True)
     
-    sample_count = np.ceil(image_count*0.7)
+    sample_count = np.ceil(len(train_paths)*0.7)
     epochs = 1000
     warmup_epoch = 10
     learning_rate_base = 4e-4
@@ -180,11 +181,11 @@ def params_search():
             steps_per_epoch = STEPS_PER_EPOCH_TRAIN,
             epochs = 1000,
             callbacks=[tbcall, model_checkpoint_callback],
-            validation_data = test_set,
+            validation_data = val_set,
             validation_steps = STEPS_PER_EPOCH_VAL
             )
     return cnn
 
 model = params_search()
 
-model.save(models_dir + datetime.datetime.now().strftime("%b-%d-%H%M"))
+model.save(models_dir + datetime.datetime.now().strftime("%b-%d-%H%M") + '.h5')

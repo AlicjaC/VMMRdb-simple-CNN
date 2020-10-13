@@ -16,6 +16,11 @@ except:
     import pickle
 import joblib
 
+import sys
+sys.path.insert(1, './lib')
+import data_prep
+import lr_warmup
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import datasets, layers, models
@@ -29,209 +34,45 @@ from optuna.samplers import TPESampler
 
 from functools import partial
 
+dataset_dir = './Car_Dataset'
+logs_dir = './logs/'
+models_dir = './models/'
+
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir)
+if not os.path.exists(models_dir):
+    os.makedirs(models_dir)
+
 tf.config.optimizer.set_jit(True)
 
-def underLimit(limit = 100):
-    cars_list = []
-    for el in CLASS_NAMES_CAR:
-        counter = car.count(el)
-        if counter < limit:
-            cars_list.append(el)
-    return cars_list
-
-def overLimit(lista, limit = 200):
-    for el in CLASS_NAMES_CAR:
-        if car.count(el) > 200:
-            counter = 0
-            deleted = 0
-            for i in range(len(lista)):
-                if ((str(lista[i-deleted][1]) +'.'+ str(lista[i-deleted][2]) +'.'+ str(lista[i-deleted][3])) == el):
-                    counter += 1
-                    if counter > 200:
-                        del lista[i-deleted]
-                        deleted += 1
-        
-    return lista
-
-def cosine_decay_with_warmup(global_step,
-                             learning_rate_base,
-                             total_steps,
-                             warmup_learning_rate=0.0,
-                             warmup_steps=0,
-                             hold_base_rate_steps=0):
-    if total_steps < warmup_steps:
-        raise ValueError('total_steps must be larger or equal to '
-                         'warmup_steps.')
-    learning_rate = 0.5 * learning_rate_base * (1 + np.cos(
-        np.pi *
-        (global_step - warmup_steps - hold_base_rate_steps
-         ) / float(total_steps - warmup_steps - hold_base_rate_steps)))
-    if hold_base_rate_steps > 0:
-        learning_rate = np.where(global_step > warmup_steps + hold_base_rate_steps,
-                                 learning_rate, learning_rate_base)
-    if warmup_steps > 0:
-        if learning_rate_base < warmup_learning_rate:
-            raise ValueError('learning_rate_base must be larger or equal to '
-                             'warmup_learning_rate.')
-        slope = (learning_rate_base - warmup_learning_rate) / warmup_steps
-        warmup_rate = slope * global_step + warmup_learning_rate
-        learning_rate = np.where(global_step < warmup_steps, warmup_rate,
-                                 learning_rate)
-    return np.where(global_step > total_steps, 0.0, learning_rate)
-
-
-class WarmUpCosineDecayScheduler(keras.callbacks.Callback):
-    
-    def __init__(self,
-                 learning_rate_base,
-                 total_steps,
-                 global_step_init=0,
-                 warmup_learning_rate=0.0,
-                 warmup_steps=0,
-                 hold_base_rate_steps=0,
-                 verbose=0):
-        super(WarmUpCosineDecayScheduler, self).__init__()
-        self.learning_rate_base = learning_rate_base
-        self.total_steps = total_steps
-        self.global_step = global_step_init
-        self.warmup_learning_rate = warmup_learning_rate
-        self.warmup_steps = warmup_steps
-        self.hold_base_rate_steps = hold_base_rate_steps
-        self.verbose = verbose
-        self.learning_rates = []
-
-    def on_batch_end(self, batch, logs=None):
-        self.global_step = self.global_step + 1
-        lr = K.get_value(self.model.optimizer.lr)
-        self.learning_rates.append(lr)
-
-    def on_batch_begin(self, batch, logs=None):
-        lr = cosine_decay_with_warmup(global_step=self.global_step,
-                                      learning_rate_base=self.learning_rate_base,
-                                      total_steps=self.total_steps,
-                                      warmup_learning_rate=self.warmup_learning_rate,
-                                      warmup_steps=self.warmup_steps,
-                                      hold_base_rate_steps=self.hold_base_rate_steps)
-        K.set_value(self.model.optimizer.lr, lr)
-        if self.verbose > 0:
-            print('\nBatch %05d: setting learning '
-                  'rate to %s.' % (self.global_step + 1, lr))
-            
-column_names = ['path', 'make', 'model', 'year_of_production']
-raw_dataset = pd.read_csv('/home/ubuntu/Zadanie_3/cars.csv', names = column_names, sep=';',
-                      dtype={"path": str, "make": str, 'model': str, 'year_of_production': str})
-
-raw_dataset = raw_dataset[raw_dataset.path != 'path']
-raw_dataset = raw_dataset[raw_dataset.year_of_production != 'ints']
-
-train_paths = raw_dataset['path'].values.tolist()
-make = raw_dataset['make'].values.tolist()
-model = raw_dataset['model'].values.tolist()
-year = raw_dataset['year_of_production'].values.tolist()
-
-car = [str(make[i]) +'.'+ str(model[i]) +'.'+ str(year[i]) for i in range(len(make))]
-
-CLASS_NAMES_MAKE = np.array(np.unique([name for name in make]))
-CLASS_NAMES_MODEL = np.array(np.unique([name for name in model]))
-CLASS_NAMES_YEAR = np.array(np.unique([name for name in year]))
-CLASS_NAMES_CAR = np.array(np.unique([name for name in car]))
-
-cars_list = underLimit(100)
-
-deleted_counter = 0
-for i in range(len(train_paths)):
-    if car[i-deleted_counter] in cars_list:
-        del train_paths[i-deleted_counter]
-        del make[i-deleted_counter]
-        del model[i-deleted_counter]
-        del year[i-deleted_counter]
-        del car[i-deleted_counter]
-        deleted_counter += 1
-
-def fConstant ():
-    return 0.1
-c = list(zip(train_paths, make, model, year))
-random.shuffle(c, fConstant)
-c = overLimit(c, 200)
-train_paths, make, model, year = zip(*c)
-
-train_paths = list(train_paths)
-make = list(make)
-model = list(model)
-year = list(year)
-
-car = [str(make[i]) +'.'+ str(model[i]) +'.'+ str(year[i]) for i in range(len(make))]
-
-image_count = len(train_paths)
-
-multiplier = 16
+train_paths, make, model, year, car = data_prep.cutToLimits()
+multiplier = 8
 BATCH_SIZE = 32 * multiplier
 IMG_WIDTH = 96
 IMG_HEIGHT = 96
-STEPS_PER_EPOCH = np.ceil(image_count/BATCH_SIZE)
-STEPS_PER_EPOCH_TRAIN = np.ceil(image_count/BATCH_SIZE*0.7)
-STEPS_PER_EPOCH_VAL = np.ceil(image_count/BATCH_SIZE*0.3)
+STEPS_PER_EPOCH = np.ceil(len(train_paths)/BATCH_SIZE)
+STEPS_PER_EPOCH_TRAIN = np.ceil(len(train_paths)/BATCH_SIZE*0.7)
+STEPS_PER_EPOCH_VAL = np.ceil(len(train_paths)/BATCH_SIZE*0.3)
 
 CLASS_NAMES_MAKE = np.array(np.unique([name for name in make]))
 CLASS_NAMES_MODEL = np.array(np.unique([name for name in model]))
 CLASS_NAMES_YEAR = np.array(np.unique([name for name in year]))
 CLASS_NAMES_CAR = np.array(np.unique([name for name in car]))
 
-os.chdir('Car_Dataset')
+os.chdir(dataset_dir)
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 path_list = tf.data.Dataset.from_tensor_slices(train_paths)
 
-def get_label_make(labels):
-    make = tf.strings.split(labels, '_')[0]
-    return make == CLASS_NAMES_MAKE
-def get_label_model(labels):
-    pos = tf.strings.length(tf.strings.split(labels, '_')[0])+1
-    length = tf.strings.length(labels)-pos-5
-    model = tf.strings.substr(labels, pos, length)
-    return model == CLASS_NAMES_MODEL
-def get_label_year(labels):
-    year = tf.strings.split(labels, '_')[-1]
-    return year == CLASS_NAMES_YEAR
+labeled_ds = data_prep.prepare_ds(path_list, CLASS_NAMES_MAKE, CLASS_NAMES_MODEL, CLASS_NAMES_YEAR, IMG_WIDTH)
 
-def decode_image(img):
-    img = tf.image.decode_jpeg(img, channels=3)
-    img = tf.image.convert_image_dtype(img, tf.float32)
-    img = img*2-1
-    return tf.image.resize(img, [IMG_WIDTH, IMG_HEIGHT])
-
-
-def process_dataset(file_path):
-    labels = tf.strings.split(file_path, '/')[0]
-    label_make = get_label_make(labels)
-    label_model = get_label_model(labels)
-    label_year = get_label_year(labels)
-     
-    img = tf.io.read_file(file_path)
-    img = decode_image(img)
-    return img, (label_make, label_model, label_year)
-
-labeled_ds = path_list.map(process_dataset, num_parallel_calls=AUTOTUNE)
-
-def prepare_for_training(ds, cache=True, shuffle_buffer_size=1000):
-    if cache:
-        if isinstance(cache, str):
-            ds = ds.cache(cache)
-        else:
-            ds = ds.cache()
-    ds = ds.shuffle(buffer_size=shuffle_buffer_size)
-    ds = ds.repeat()
-    ds = ds.batch(BATCH_SIZE)
-    ds = ds.prefetch(buffer_size=AUTOTUNE)
-    return ds
-
-train_size = math.ceil(0.7 * image_count)
+train_size = math.ceil(0.7 * len(train_paths))
 train_ds = labeled_ds.take(train_size)
-test_ds = labeled_ds.skip(train_size)
+val_ds = labeled_ds.skip(train_size)
 
-train_set = prepare_for_training(train_ds)
-test_set = prepare_for_training(test_ds)
+train_set = data_prep.prepare_for_training(train_ds, batch_size = BATCH_SIZE)
+val_set = data_prep.prepare_for_training(val_ds, batch_size = BATCH_SIZE)
 
 mirrored_strategy = tf.distribute.MirroredStrategy()
 
@@ -257,37 +98,40 @@ def params_search():
         x = layers.Conv2D(neuron_3, (kernel_3, kernel_3), activation='relu')(x)
         x = layers.MaxPooling2D()(x)
         x = layers.Conv2D(neuron_4, (kernel_4, kernel_4), activation='relu')(x)
-        x = layers.MaxPooling2D()(x)
-        l_make = layers.Dropout(0.35)(x)
-        l_make = layers.GlobalAveragePooling2D()(l_make)
-        l_model = layers.Dropout(0.25)(x)
-        l_model = layers.GlobalAveragePooling2D()(l_model)
-        l_year = layers.Dropout(0.3)(x)
-        l_year = layers.GlobalAveragePooling2D()(l_year)
+        x = layers.GlobalAveragePooling2D()(x)
         
-        l2_make = tf.keras.regularizers.l2(1.33e-6)
-        l2_model = tf.keras.regularizers.l2(9.51e-08)
-        l2_year = tf.keras.regularizers.l2(9.32e-08)
+        num_dense_make = 5
+        make_neuron = 612
+        num_dense_model = 1
+        model_neuron = 1429
+        num_dense_year = 3
+        year_neuron = 433
         
-        num_dense_make = 9
-        make_neuron = 1563
-        make_dropout = 0.05
-        num_dense_model = 6
-        model_neuron = 1386
-        model_dropout = 0.15
-        num_dense_year = 8 
-        year_neuron = 1515 
-        year_dropout = 0.20 
+        l2_parametr_make = 7e-6
+        l2_make = tf.keras.regularizers.l2(l2_parametr_make)
+        make_dropout = 0.2       
+        
+        l2_parametr_model = 4.4e-6
+        l2_model = tf.keras.regularizers.l2(l2_parametr_model)
+        model_dropout = 0.35
+        
+        l2_parametr_year = 9e-6
+        l2_year = tf.keras.regularizers.l2(l2_parametr_year)
+        year_dropout = 0.25
 
-        for i in range(int(num_dense_make)):
+        l_make = layers.Dense(make_neuron, activation='relu', kernel_regularizer = l2_make)(x)
+        l_model = layers.Dense(model_neuron, activation='relu', kernel_regularizer = l2_model)(x)
+        l_year = layers.Dense(year_neuron, activation='relu', kernel_regularizer = l2_year)(x)
+   
+        for i in range(int(num_dense_make-1)):
             l_make = layers.Dense(make_neuron, activation='relu', kernel_regularizer = l2_make)(l_make)
         l_make = layers.Dropout(make_dropout)(l_make)
-        
-        for i in range(int(num_dense_model)):
+
+        for i in range(int(num_dense_model-1)):
             l_model = layers.Dense(model_neuron, activation='relu', kernel_regularizer = l2_model)(l_model)
         l_model = layers.Dropout(model_dropout)(l_model)
         
-        for i in range(int(num_dense_year)):
+        for i in range(int(num_dense_year-1)):
             l_year = layers.Dense(year_neuron, activation='relu', kernel_regularizer = l2_year)(l_year)
         l_year = layers.Dropout(year_dropout)(l_year)
 
@@ -305,26 +149,13 @@ def params_search():
         
 
     #CALLBACKS
-    sample_count = np.ceil(image_count*0.7)
-    epochs = 1000
-    warmup_epoch = 10
-    learning_rate_base = 8e-4
-
-    total_steps = int(epochs * sample_count / BATCH_SIZE)
-    warmup_steps = int(warmup_epoch * sample_count / BATCH_SIZE)
-    warmup_batches = warmup_epoch * sample_count / BATCH_SIZE
-
-    warm_up_lr = WarmUpCosineDecayScheduler(learning_rate_base=learning_rate_base,
-                                        total_steps=total_steps,
-                                        warmup_learning_rate=0.0,
-                                        warmup_steps=warmup_steps,
-                                        hold_base_rate_steps=0)
+    lr_schedule = tf.keras.callbacks.LearningRateScheduler(lambda epoch: 1e-8 * 10**(epoch / 20))
 
     cnn.fit(train_set,
             steps_per_epoch = STEPS_PER_EPOCH_TRAIN,
-            epochs = 100,
-            callbacks=[warm_up_lr],
-            validation_data = test_set,
+            epochs = 120,
+            callbacks=[lr_schedule],
+            validation_data = val_set,
             validation_steps = STEPS_PER_EPOCH_VAL
             )
     
